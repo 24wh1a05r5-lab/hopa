@@ -1,34 +1,79 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Road Safety AI</title>
+<title>Smart Driver Assistant (AI)</title>
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0"></script>
 <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8"></script>
 
 <style>
-body { font-family: Arial; text-align:center; background:#f2f2f2; }
-button { padding:10px 15px; margin:5px; font-size:16px; }
-video, canvas { width:100%; max-width:360px; border-radius:10px; }
-#label { font-size:20px; font-weight:bold; margin-top:10px; }
+body {
+  font-family: Arial;
+  background:#f2f2f2;
+  text-align:center;
+  margin:0;
+}
+header {
+  background:#0b5d1e;
+  color:white;
+  padding:20px;
+  font-size:22px;
+}
+.box {
+  background:white;
+  margin:20px auto;
+  padding:15px;
+  max-width:420px;
+  border-radius:10px;
+}
+button {
+  padding:10px 14px;
+  margin:5px;
+  font-size:15px;
+  background:green;
+  color:white;
+  border:none;
+  border-radius:6px;
+}
+video, canvas {
+  width:100%;
+  border-radius:10px;
+}
+#label {
+  font-size:18px;
+  font-weight:bold;
+  margin-top:10px;
+}
 </style>
 </head>
 
 <body>
 
-<h2>🚗 Road Safety Detection</h2>
+<header>🚗 Smart Driver Assistant (AI)</header>
 
-<button onclick="startAI()">▶ Start AI</button><br>
-<button onclick="switchCamera('environment')">📷 Back Camera</button>
-<button onclick="switchCamera('user')">🤳 Front Camera</button>
+<div class="box">
+  <h3>📷 Road Safety Detection</h3>
 
-<br><br>
+  <button onclick="startAI()">▶ Start AI</button><br>
+  <button onclick="switchCamera('environment')">📷 Back Camera</button>
+  <button onclick="switchCamera('user')">🤳 Front Camera</button>
 
-<video id="video" autoplay playsinline></video>
-<canvas id="canvas"></canvas>
+  <br><br>
+  <video id="video" autoplay playsinline></video>
+  <canvas id="canvas"></canvas>
 
-<div id="label">Waiting...</div>
+  <div id="label">Waiting...</div>
+</div>
+
+<div class="box">
+  <h3>⛽ Fuel Estimator</h3>
+  <input id="distance" type="number" placeholder="Distance (km)"><br>
+  <input id="mileage" type="number" placeholder="Mileage (km/l)"><br>
+  <input id="price" type="number" placeholder="Fuel Price (₹/l)"><br>
+  <button onclick="calculateFuel()">Calculate</button>
+  <p id="fuelResult"></p>
+</div>
 
 <script>
 const URL = "model/";
@@ -36,8 +81,8 @@ let model, maxPredictions;
 let video = document.getElementById("video");
 let canvas = document.getElementById("canvas");
 let ctx = canvas.getContext("2d");
-let currentFacing = "environment";
 let stream = null;
+let facing = "environment";
 let lastSpoken = "";
 
 async function startAI() {
@@ -51,19 +96,19 @@ async function startCamera() {
   if (stream) stream.getTracks().forEach(t => t.stop());
 
   stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: { exact: currentFacing } },
+    video: { facingMode: facing },
     audio: false
   });
 
   video.srcObject = stream;
+  await new Promise(r => video.onloadedmetadata = r);
 
-  await new Promise(resolve => video.onloadedmetadata = resolve);
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
 }
 
 function switchCamera(mode) {
-  currentFacing = mode;
+  facing = mode;
   startCamera();
 }
 
@@ -76,24 +121,30 @@ async function loop() {
 async function predict() {
   const prediction = await model.predict(canvas);
 
-  let best = prediction[0];
-  for (let p of prediction) {
-    if (p.probability > best.probability) best = p;
-  }
-
+  let best = prediction.reduce((a,b)=> a.probability>b.probability?a:b);
   document.getElementById("label").innerHTML =
-    `${best.className} (${(best.probability * 100).toFixed(1)}%)`;
+    `${best.className} ${(best.probability*100).toFixed(1)}%`;
 
-  if (best.className === "Pothole") speak("Warning pothole ahead", "p");
-  else if (best.className === "Vehicle") speak("Vehicle ahead", "v");
-  else speak("Road is normal", "n");
+  if (best.className === "Pothole")
+    speak("Warning pothole ahead","p");
+  else if (best.className === "Vehicle")
+    speak("Vehicle ahead","v");
+  else
+    speak("Road is normal","n");
 }
 
-function speak(text, key) {
-  if (lastSpoken === key) return;
-  lastSpoken = key;
+function speak(text,key){
+  if(lastSpoken===key) return;
+  lastSpoken=key;
   speechSynthesis.cancel();
   speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+}
+
+function calculateFuel(){
+  const d=+distance.value, m=+mileage.value, p=+price.value;
+  if(!d||!m||!p) return alert("Enter all values");
+  const fuel=d/m, cost=fuel*p;
+  fuelResult.innerHTML=`Fuel: ${fuel.toFixed(2)} L<br>Cost: ₹${cost.toFixed(2)}`;
 }
 </script>
 
