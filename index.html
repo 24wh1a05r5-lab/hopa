@@ -41,7 +41,7 @@
       color: white;
       border-radius: 6px;
       cursor: pointer;
-      margin: 10px;
+      margin: 8px;
     }
 
     button:hover {
@@ -70,7 +70,9 @@
 <!-- AI Detection -->
 <div class="box">
   <h2>📷 Road Safety Detection</h2>
+
   <button id="startBtn" onclick="init()">Start AI Detection</button>
+  <button onclick="flipCamera()">Flip Camera</button>
 
   <div id="webcam-container"></div>
   <div id="label-container">Waiting for camera...</div>
@@ -93,37 +95,46 @@
 
   const URL = "model/";
   let model, webcam, labelContainer, maxPredictions;
-  let lastSpokenClass = "";
+  let lastSpoken = "";
   let isRunning = false;
+  let isFrontCamera = true;
 
   async function init() {
-    if (isRunning) return; // prevent multiple starts
+    if (isRunning) return;
     isRunning = true;
 
     document.getElementById("startBtn").disabled = true;
     document.getElementById("startBtn").innerText = "AI Running...";
 
-    try {
-      const modelURL = URL + "model.json";
-      const metadataURL = URL + "metadata.json";
+    const modelURL = URL + "model.json";
+    const metadataURL = URL + "metadata.json";
 
-      model = await tmImage.load(modelURL, metadataURL);
-      maxPredictions = model.getTotalClasses();
+    model = await tmImage.load(modelURL, metadataURL);
+    maxPredictions = model.getTotalClasses();
 
-      webcam = new tmImage.Webcam(300, 300, true);
-      await webcam.setup();
-      await webcam.play();
+    await startCamera();
+    labelContainer = document.getElementById("label-container");
+    window.requestAnimationFrame(loop);
+  }
 
-      document.getElementById("webcam-container").appendChild(webcam.canvas);
-      labelContainer = document.getElementById("label-container");
-      labelContainer.innerHTML = "Camera started";
+  async function startCamera() {
+    if (webcam) webcam.stop();
 
-      window.requestAnimationFrame(loop);
+    webcam = new tmImage.Webcam(300, 300, isFrontCamera);
+    await webcam.setup({
+      facingMode: isFrontCamera ? "user" : "environment"
+    });
+    await webcam.play();
 
-    } catch (err) {
-      alert("Camera / Model Error: " + err.message);
-      console.error(err);
-    }
+    const container = document.getElementById("webcam-container");
+    container.innerHTML = "";
+    container.appendChild(webcam.canvas);
+  }
+
+  async function flipCamera() {
+    if (!isRunning) return;
+    isFrontCamera = !isFrontCamera;
+    await startCamera();
   }
 
   async function loop() {
@@ -145,25 +156,30 @@
     const percent = (best.probability * 100).toFixed(1);
     labelContainer.innerHTML = `${best.className} : ${percent}%`;
 
-    if (best.className === "Pothole" || best.className === "Vehicle") {
+    if (best.className === "Pothole") {
       labelContainer.style.color = "red";
+      speakOnce("Warning pothole ahead");
 
-      if (lastSpokenClass !== best.className) {
-        speak(`Warning ${best.className} ahead`);
-        lastSpokenClass = best.className;
-      }
+    } else if (best.className === "Vehicle") {
+      labelContainer.style.color = "orange";
+      speakOnce("Warning vehicle ahead");
+
     } else {
       labelContainer.style.color = "green";
-      lastSpokenClass = "";
+      speakOnce("Road is clear");
     }
   }
 
-  function speak(msg) {
+  function speakOnce(message) {
+    if (lastSpoken === message) return;
+
     window.speechSynthesis.cancel();
-    const speech = new SpeechSynthesisUtterance(msg);
+    const speech = new SpeechSynthesisUtterance(message);
     speech.rate = 1;
     speech.pitch = 1;
     window.speechSynthesis.speak(speech);
+
+    lastSpoken = message;
   }
 
   // ---------------- FUEL PART ----------------
@@ -188,3 +204,6 @@
 </script>
 </body>
 </html>
+
+ 
+      
