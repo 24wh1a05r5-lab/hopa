@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Smart Driver Assistant (AI)</title>
+
+  <!-- TensorFlow & Teachable Machine -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f2f2f2;
+      text-align: center;
+      margin: 0;
+    }
+
+    header {
+      background: #0b5d1e;
+      color: white;
+      padding: 20px;
+      font-size: 24px;
+      font-weight: bold;
+    }
+
+    .box {
+      background: white;
+      padding: 20px;
+      margin: 20px auto;
+      max-width: 400px;
+      border-radius: 10px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    }
+
+    button {
+      padding: 12px 20px;
+      font-size: 16px;
+      border: none;
+      background: green;
+      color: white;
+      border-radius: 6px;
+      cursor: pointer;
+      margin: 10px;
+    }
+
+    button:hover {
+      background: darkgreen;
+    }
+
+    #label-container {
+      margin-top: 10px;
+      font-size: 18px;
+      font-weight: bold;
+    }
+
+    input {
+      padding: 10px;
+      width: 200px;
+      margin: 5px;
+      border-radius: 5px;
+      border: 1px solid #ccc;
+    }
+  </style>
+</head>
+
+<body>
+<header>🚗 Smart Driver Assistant (AI)</header>
+
+<!-- AI Detection -->
+<div class="box">
+  <h2>📷 Road Safety Detection</h2>
+  <button id="startBtn" onclick="init()">Start AI Detection</button>
+
+  <div id="webcam-container"></div>
+  <div id="label-container">Waiting for camera...</div>
+</div>
+
+<!-- Fuel Calculator -->
+<div class="box">
+  <h2>⛽ Fuel Estimator</h2>
+
+  <input type="number" id="distance" placeholder="Distance (km)"><br>
+  <input type="number" id="mileage" placeholder="Mileage (km/l)"><br>
+  <input type="number" id="price" placeholder="Fuel Price (₹/l)"><br>
+
+  <button onclick="calculateFuel()">Calculate Fuel</button>
+  <p id="fuelResult"></p>
+</div>
+
+<script>
+  // ---------------- AI PART ----------------
+
+  const URL = "model/";
+  let model, webcam, labelContainer, maxPredictions;
+  let lastSpokenClass = "";
+  let isRunning = false;
+
+  async function init() {
+    if (isRunning) return; // prevent multiple starts
+    isRunning = true;
+
+    document.getElementById("startBtn").disabled = true;
+    document.getElementById("startBtn").innerText = "AI Running...";
+
+    try {
+      const modelURL = URL + "model.json";
+      const metadataURL = URL + "metadata.json";
+
+      model = await tmImage.load(modelURL, metadataURL);
+      maxPredictions = model.getTotalClasses();
+
+      webcam = new tmImage.Webcam(300, 300, true);
+      await webcam.setup();
+      await webcam.play();
+
+      document.getElementById("webcam-container").appendChild(webcam.canvas);
+      labelContainer = document.getElementById("label-container");
+      labelContainer.innerHTML = "Camera started";
+
+      window.requestAnimationFrame(loop);
+
+    } catch (err) {
+      alert("Camera / Model Error: " + err.message);
+      console.error(err);
+    }
+  }
+
+  async function loop() {
+    webcam.update();
+    await predict();
+    window.requestAnimationFrame(loop);
+  }
+
+  async function predict() {
+    const prediction = await model.predict(webcam.canvas);
+
+    let best = prediction[0];
+    for (let i = 1; i < maxPredictions; i++) {
+      if (prediction[i].probability > best.probability) {
+        best = prediction[i];
+      }
+    }
+
+    const percent = (best.probability * 100).toFixed(1);
+    labelContainer.innerHTML = `${best.className} : ${percent}%`;
+
+    if (best.className === "Pothole" || best.className === "Vehicle") {
+      labelContainer.style.color = "red";
+
+      if (lastSpokenClass !== best.className) {
+        speak(`Warning ${best.className} ahead`);
+        lastSpokenClass = best.className;
+      }
+    } else {
+      labelContainer.style.color = "green";
+      lastSpokenClass = "";
+    }
+  }
+
+  function speak(msg) {
+    window.speechSynthesis.cancel();
+    const speech = new SpeechSynthesisUtterance(msg);
+    speech.rate = 1;
+    speech.pitch = 1;
+    window.speechSynthesis.speak(speech);
+  }
+
+  // ---------------- FUEL PART ----------------
+
+  function calculateFuel() {
+    const distance = document.getElementById("distance").value;
+    const mileage = document.getElementById("mileage").value;
+    const price = document.getElementById("price").value;
+
+    if (!distance || !mileage || !price) {
+      alert("Please enter all values");
+      return;
+    }
+
+    const fuel = distance / mileage;
+    const cost = fuel * price;
+
+    document.getElementById("fuelResult").innerHTML =
+      `Fuel Needed: ${fuel.toFixed(2)} Litres<br>
+       Estimated Cost: ₹${cost.toFixed(2)}`;
+  }
+</script>
+</body>
+</html>
