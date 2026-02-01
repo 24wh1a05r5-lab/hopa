@@ -15,7 +15,6 @@
       text-align: center;
       margin: 0;
     }
-
     header {
       background: #0b5d1e;
       color: white;
@@ -23,37 +22,30 @@
       font-size: 24px;
       font-weight: bold;
     }
-
     .box {
       background: white;
       padding: 20px;
       margin: 20px auto;
-      max-width: 400px;
+      max-width: 420px;
       border-radius: 10px;
       box-shadow: 0 0 10px rgba(0,0,0,0.1);
     }
-
     button {
-      padding: 12px 20px;
-      font-size: 16px;
+      padding: 12px 18px;
+      font-size: 15px;
       border: none;
       background: green;
       color: white;
       border-radius: 6px;
       cursor: pointer;
-      margin: 8px;
+      margin: 6px;
     }
-
-    button:hover {
-      background: darkgreen;
-    }
-
+    button:hover { background: darkgreen; }
     #label-container {
       margin-top: 10px;
       font-size: 18px;
       font-weight: bold;
     }
-
     input {
       padding: 10px;
       width: 200px;
@@ -61,18 +53,24 @@
       border-radius: 5px;
       border: 1px solid #ccc;
     }
+    canvas {
+      width: 100%;
+      border-radius: 10px;
+    }
   </style>
 </head>
 
 <body>
+
 <header>🚗 Smart Driver Assistant (AI)</header>
 
 <!-- AI Detection -->
 <div class="box">
   <h2>📷 Road Safety Detection</h2>
 
-  <button id="startBtn" onclick="init()">Start AI Detection</button>
-  <button onclick="flipCamera()">Flip Camera</button>
+  <button id="startBtn" onclick="init()">▶ Start AI</button><br>
+  <button onclick="startCamera('environment')">📷 Back Camera</button>
+  <button onclick="startCamera('user')">🤳 Front Camera</button>
 
   <div id="webcam-container"></div>
   <div id="label-container">Waiting for camera...</div>
@@ -91,13 +89,11 @@
 </div>
 
 <script>
-  // ---------------- AI PART ----------------
-
-  const URL = "model/";
+  const URL = "model/"; // folder with model files
   let model, webcam, labelContainer, maxPredictions;
-  let lastSpoken = "";
   let isRunning = false;
-  let isFrontCamera = true;
+  let lastSpoken = "";
+  let currentFacing = "environment"; // back camera default
 
   async function init() {
     if (isRunning) return;
@@ -106,35 +102,33 @@
     document.getElementById("startBtn").disabled = true;
     document.getElementById("startBtn").innerText = "AI Running...";
 
-    const modelURL = URL + "model.json";
-    const metadataURL = URL + "metadata.json";
+    try {
+      model = await tmImage.load(URL + "model.json", URL + "metadata.json");
+      maxPredictions = model.getTotalClasses();
 
-    model = await tmImage.load(modelURL, metadataURL);
-    maxPredictions = model.getTotalClasses();
+      await startCamera(currentFacing);
 
-    await startCamera();
-    labelContainer = document.getElementById("label-container");
-    window.requestAnimationFrame(loop);
+      labelContainer = document.getElementById("label-container");
+      window.requestAnimationFrame(loop);
+    } catch (e) {
+      alert("Error: " + e.message);
+      console.error(e);
+    }
   }
 
-  async function startCamera() {
+  async function startCamera(facing) {
+    currentFacing = facing;
+
     if (webcam) webcam.stop();
 
-    webcam = new tmImage.Webcam(300, 300, isFrontCamera);
-    await webcam.setup({
-      facingMode: isFrontCamera ? "user" : "environment"
-    });
+    // IMPORTANT: Teachable Machine uses flip flag
+    webcam = new tmImage.Webcam(300, 300, facing === "user");
+    await webcam.setup();
     await webcam.play();
 
     const container = document.getElementById("webcam-container");
     container.innerHTML = "";
     container.appendChild(webcam.canvas);
-  }
-
-  async function flipCamera() {
-    if (!isRunning) return;
-    isFrontCamera = !isFrontCamera;
-    await startCamera();
   }
 
   async function loop() {
@@ -148,9 +142,7 @@
 
     let best = prediction[0];
     for (let i = 1; i < maxPredictions; i++) {
-      if (prediction[i].probability > best.probability) {
-        best = prediction[i];
-      }
+      if (prediction[i].probability > best.probability) best = prediction[i];
     }
 
     const percent = (best.probability * 100).toFixed(1);
@@ -158,52 +150,47 @@
 
     if (best.className === "Pothole") {
       labelContainer.style.color = "red";
-      speakOnce("Warning pothole ahead");
-
-    } else if (best.className === "Vehicle") {
+      speakOnce("Warning pothole ahead", "pothole");
+    }
+    else if (best.className === "Vehicle") {
       labelContainer.style.color = "orange";
-      speakOnce("Warning vehicle ahead");
-
-    } else {
+      speakOnce("Vehicle ahead", "vehicle");
+    }
+    else {
       labelContainer.style.color = "green";
-      speakOnce("Road is clear");
+      speakOnce("Road is clear", "normal");
     }
   }
 
-  function speakOnce(message) {
-    if (lastSpoken === message) return;
+  function speakOnce(text, key) {
+    if (lastSpoken === key) return;
+    lastSpoken = key;
 
     window.speechSynthesis.cancel();
-    const speech = new SpeechSynthesisUtterance(message);
-    speech.rate = 1;
-    speech.pitch = 1;
-    window.speechSynthesis.speak(speech);
-
-    lastSpoken = message;
+    const msg = new SpeechSynthesisUtterance(text);
+    msg.rate = 1;
+    msg.pitch = 1;
+    window.speechSynthesis.speak(msg);
   }
 
-  // ---------------- FUEL PART ----------------
-
   function calculateFuel() {
-    const distance = document.getElementById("distance").value;
-    const mileage = document.getElementById("mileage").value;
-    const price = document.getElementById("price").value;
+    const d = +distance.value;
+    const m = +mileage.value;
+    const p = +price.value;
 
-    if (!distance || !mileage || !price) {
-      alert("Please enter all values");
+    if (!d || !m || !p) {
+      alert("Enter all values");
       return;
     }
 
-    const fuel = distance / mileage;
-    const cost = fuel * price;
+    const fuel = d / m;
+    const cost = fuel * p;
 
-    document.getElementById("fuelResult").innerHTML =
-      `Fuel Needed: ${fuel.toFixed(2)} Litres<br>
-       Estimated Cost: ₹${cost.toFixed(2)}`;
+    fuelResult.innerHTML =
+      `Fuel Needed: ${fuel.toFixed(2)} L<br>Estimated Cost: ₹${cost.toFixed(2)}`;
   }
 </script>
+
 </body>
 </html>
 
- 
-      
