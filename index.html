@@ -1,196 +1,101 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8" />
-  <title>Smart Driver Assistant (AI)</title>
+<meta charset="UTF-8">
+<title>Road Safety AI</title>
 
-  <!-- TensorFlow & Teachable Machine -->
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0/dist/tf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0"></script>
+<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8"></script>
 
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      background: #f2f2f2;
-      text-align: center;
-      margin: 0;
-    }
-    header {
-      background: #0b5d1e;
-      color: white;
-      padding: 20px;
-      font-size: 24px;
-      font-weight: bold;
-    }
-    .box {
-      background: white;
-      padding: 20px;
-      margin: 20px auto;
-      max-width: 420px;
-      border-radius: 10px;
-      box-shadow: 0 0 10px rgba(0,0,0,0.1);
-    }
-    button {
-      padding: 12px 18px;
-      font-size: 15px;
-      border: none;
-      background: green;
-      color: white;
-      border-radius: 6px;
-      cursor: pointer;
-      margin: 6px;
-    }
-    button:hover { background: darkgreen; }
-    #label-container {
-      margin-top: 10px;
-      font-size: 18px;
-      font-weight: bold;
-    }
-    input {
-      padding: 10px;
-      width: 200px;
-      margin: 5px;
-      border-radius: 5px;
-      border: 1px solid #ccc;
-    }
-    canvas {
-      width: 100%;
-      border-radius: 10px;
-    }
-  </style>
+<style>
+body { font-family: Arial; text-align:center; background:#f2f2f2; }
+button { padding:10px 15px; margin:5px; font-size:16px; }
+video, canvas { width:100%; max-width:360px; border-radius:10px; }
+#label { font-size:20px; font-weight:bold; margin-top:10px; }
+</style>
 </head>
 
 <body>
 
-<header>🚗 Smart Driver Assistant (AI)</header>
+<h2>🚗 Road Safety Detection</h2>
 
-<!-- AI Detection -->
-<div class="box">
-  <h2>📷 Road Safety Detection</h2>
+<button onclick="startAI()">▶ Start AI</button><br>
+<button onclick="switchCamera('environment')">📷 Back Camera</button>
+<button onclick="switchCamera('user')">🤳 Front Camera</button>
 
-  <button id="startBtn" onclick="init()">▶ Start AI</button><br>
-  <button onclick="startCamera('environment')">📷 Back Camera</button>
-  <button onclick="startCamera('user')">🤳 Front Camera</button>
+<br><br>
 
-  <div id="webcam-container"></div>
-  <div id="label-container">Waiting for camera...</div>
-</div>
+<video id="video" autoplay playsinline></video>
+<canvas id="canvas"></canvas>
 
-<!-- Fuel Calculator -->
-<div class="box">
-  <h2>⛽ Fuel Estimator</h2>
-
-  <input type="number" id="distance" placeholder="Distance (km)"><br>
-  <input type="number" id="mileage" placeholder="Mileage (km/l)"><br>
-  <input type="number" id="price" placeholder="Fuel Price (₹/l)"><br>
-
-  <button onclick="calculateFuel()">Calculate Fuel</button>
-  <p id="fuelResult"></p>
-</div>
+<div id="label">Waiting...</div>
 
 <script>
-  const URL = "model/"; // folder with model files
-  let model, webcam, labelContainer, maxPredictions;
-  let isRunning = false;
-  let lastSpoken = "";
-  let currentFacing = "environment"; // back camera default
+const URL = "model/";
+let model, maxPredictions;
+let video = document.getElementById("video");
+let canvas = document.getElementById("canvas");
+let ctx = canvas.getContext("2d");
+let currentFacing = "environment";
+let stream = null;
+let lastSpoken = "";
 
-  async function init() {
-    if (isRunning) return;
-    isRunning = true;
+async function startAI() {
+  model = await tmImage.load(URL + "model.json", URL + "metadata.json");
+  maxPredictions = model.getTotalClasses();
+  await startCamera();
+  requestAnimationFrame(loop);
+}
 
-    document.getElementById("startBtn").disabled = true;
-    document.getElementById("startBtn").innerText = "AI Running...";
+async function startCamera() {
+  if (stream) stream.getTracks().forEach(t => t.stop());
 
-    try {
-      model = await tmImage.load(URL + "model.json", URL + "metadata.json");
-      maxPredictions = model.getTotalClasses();
+  stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: { exact: currentFacing } },
+    audio: false
+  });
 
-      await startCamera(currentFacing);
+  video.srcObject = stream;
 
-      labelContainer = document.getElementById("label-container");
-      window.requestAnimationFrame(loop);
-    } catch (e) {
-      alert("Error: " + e.message);
-      console.error(e);
-    }
+  await new Promise(resolve => video.onloadedmetadata = resolve);
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+}
+
+function switchCamera(mode) {
+  currentFacing = mode;
+  startCamera();
+}
+
+async function loop() {
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  await predict();
+  requestAnimationFrame(loop);
+}
+
+async function predict() {
+  const prediction = await model.predict(canvas);
+
+  let best = prediction[0];
+  for (let p of prediction) {
+    if (p.probability > best.probability) best = p;
   }
 
-  async function startCamera(facing) {
-    currentFacing = facing;
+  document.getElementById("label").innerHTML =
+    `${best.className} (${(best.probability * 100).toFixed(1)}%)`;
 
-    if (webcam) webcam.stop();
+  if (best.className === "Pothole") speak("Warning pothole ahead", "p");
+  else if (best.className === "Vehicle") speak("Vehicle ahead", "v");
+  else speak("Road is normal", "n");
+}
 
-    // IMPORTANT: Teachable Machine uses flip flag
-    webcam = new tmImage.Webcam(300, 300, facing === "user");
-    await webcam.setup();
-    await webcam.play();
-
-    const container = document.getElementById("webcam-container");
-    container.innerHTML = "";
-    container.appendChild(webcam.canvas);
-  }
-
-  async function loop() {
-    webcam.update();
-    await predict();
-    window.requestAnimationFrame(loop);
-  }
-
-  async function predict() {
-    const prediction = await model.predict(webcam.canvas);
-
-    let best = prediction[0];
-    for (let i = 1; i < maxPredictions; i++) {
-      if (prediction[i].probability > best.probability) best = prediction[i];
-    }
-
-    const percent = (best.probability * 100).toFixed(1);
-    labelContainer.innerHTML = `${best.className} : ${percent}%`;
-
-    if (best.className === "Pothole") {
-      labelContainer.style.color = "red";
-      speakOnce("Warning pothole ahead", "pothole");
-    }
-    else if (best.className === "Vehicle") {
-      labelContainer.style.color = "orange";
-      speakOnce("Vehicle ahead", "vehicle");
-    }
-    else {
-      labelContainer.style.color = "green";
-      speakOnce("Road is clear", "normal");
-    }
-  }
-
-  function speakOnce(text, key) {
-    if (lastSpoken === key) return;
-    lastSpoken = key;
-
-    window.speechSynthesis.cancel();
-    const msg = new SpeechSynthesisUtterance(text);
-    msg.rate = 1;
-    msg.pitch = 1;
-    window.speechSynthesis.speak(msg);
-  }
-
-  function calculateFuel() {
-    const d = +distance.value;
-    const m = +mileage.value;
-    const p = +price.value;
-
-    if (!d || !m || !p) {
-      alert("Enter all values");
-      return;
-    }
-
-    const fuel = d / m;
-    const cost = fuel * p;
-
-    fuelResult.innerHTML =
-      `Fuel Needed: ${fuel.toFixed(2)} L<br>Estimated Cost: ₹${cost.toFixed(2)}`;
-  }
+function speak(text, key) {
+  if (lastSpoken === key) return;
+  lastSpoken = key;
+  speechSynthesis.cancel();
+  speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+}
 </script>
 
 </body>
 </html>
-
